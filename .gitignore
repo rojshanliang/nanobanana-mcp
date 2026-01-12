@@ -11,3 +11,9 @@ dist/
 coverage/
 .nyc_output/
 .mcp.json
+
+# Prevent credential files from being committed
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json

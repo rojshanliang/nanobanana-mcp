@@ -32,7 +32,9 @@ Supercharge Claude Desktop and Claude Code with Google's Gemini multimodal capab
 
 - Node.js 18+
 - One of: Claude Desktop, Claude Code, VSCode, Cursor, or Windsurf
-- Google AI API Key ([Get it here](https://makersuite.google.com/app/apikey))
+- **API Access** (Choose one):
+  - Google AI Studio API Key ([Get it here](https://makersuite.google.com/app/apikey)) - For development/personal use
+  - Google Cloud Vertex AI access ([Setup Guide](#vertex-ai-setup-guide)) - For production environments
 
 ### Installation
 
@@ -44,9 +46,9 @@ cd nanobanana-mcp
 npm install
 npm run build
 
-# Configure API Key
+# Configure API (see API Configuration section below)
 cp .env.example .env
-# Edit .env and add your GOOGLE_AI_API_KEY
+# Edit .env based on your chosen API mode
 ```
 
 Then choose your platform:
@@ -138,6 +140,253 @@ Add to your Windsurf configuration file `~/.windsurf/config.json`:
 }
 ```
 
+## 🔧 API Configuration
+
+NanoBanana MCP supports two API modes for accessing Google's Gemini models:
+
+### Mode 1: AI Studio (Default) - Development & Personal Use
+
+**Best for:** Rapid prototyping, personal projects, and learning.
+
+**Setup:**
+```bash
+# .env configuration
+API_MODE=ai_studio
+GOOGLE_AI_API_KEY=your_ai_studio_api_key_here
+```
+
+**How to get API Key:**
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Click "Get API Key" or "Create API Key"
+3. Copy the key and add to `.env`
+
+**Advantages:**
+- ✅ Quick setup (just an API key)
+- ✅ No Google Cloud project required
+- ✅ Free tier available
+- ✅ Perfect for testing and development
+
+**Limitations:**
+- ⚠️ Rate limits may be lower
+- ⚠️ Not recommended for production workloads
+
+---
+
+### Mode 2: Vertex AI - Production & Enterprise
+
+**Best for:** Production applications, enterprise deployments, and advanced features.
+
+**Setup:**
+```bash
+# .env configuration
+API_MODE=vertex_ai
+VERTEX_AI_PROJECT=your-gcp-project-id
+VERTEX_AI_LOCATION=us-central1
+
+# Authentication (choose one):
+# Option A: Service Account Key
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+
+# Option B: Application Default Credentials (ADC)
+# Run: gcloud auth application-default login
+```
+
+**Advantages:**
+- ✅ Higher rate limits and quotas
+- ✅ Production-grade SLAs
+- ✅ Advanced monitoring and logging
+- ✅ Integration with GCP services
+- ✅ Enterprise support options
+
+**Setup Guide:** See [Vertex AI Setup Guide](#vertex-ai-setup-guide) below.
+
+---
+
+### Environment Variables Reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `API_MODE` | No | `ai_studio` | API mode: `ai_studio` or `vertex_ai` |
+| `GOOGLE_AI_API_KEY` | Yes (AI Studio) | - | AI Studio API key |
+| `VERTEX_AI_PROJECT` | Yes (Vertex AI) | - | GCP project ID |
+| `VERTEX_AI_LOCATION` | No | `us-central1` | Vertex AI region |
+| `GOOGLE_APPLICATION_CREDENTIALS` | No* | - | Path to service account key (Vertex AI) |
+| `CHAT_MODEL_ID` | No | `gemini-2.5-flash-image` | Override chat model |
+| `IMAGE_MODEL_ID` | No | `gemini-2.5-flash-image` | Override image generation model |
+
+*Not required if using Application Default Credentials (ADC)
+
+---
+
+### Authentication Methods Comparison
+
+| Method | Setup Complexity | Use Case | Security |
+|--------|------------------|----------|----------|
+| **AI Studio API Key** | ⭐ Easy | Development, testing | Store in `.env`, never commit |
+| **Service Account Key** | ⭐⭐ Medium | Production, CI/CD | Rotate regularly, restrict permissions |
+| **ADC (gcloud auth)** | ⭐⭐⭐ Advanced | Local development with GCP | Best for developers with GCP access |
+
+---
+
+### Vertex AI Setup Guide
+
+#### Step 1: Enable Vertex AI API
+
+```bash
+# Set your project
+gcloud config set project YOUR_PROJECT_ID
+
+# Enable required APIs
+gcloud services enable aiplatform.googleapis.com
+gcloud services enable compute.googleapis.com
+```
+
+#### Step 2: Choose Authentication Method
+
+**Option A: Service Account (Recommended for Production)**
+
+```bash
+# Create service account
+gcloud iam service-accounts create nanobanana-mcp \
+  --display-name="NanoBanana MCP Service Account"
+
+# Grant Vertex AI User role
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:nanobanana-mcp@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+
+# Create and download key
+gcloud iam service-accounts keys create ~/nanobanana-mcp-key.json \
+  --iam-account=nanobanana-mcp@YOUR_PROJECT_ID.iam.gserviceaccount.com
+```
+
+Then configure `.env`:
+```bash
+API_MODE=vertex_ai
+VERTEX_AI_PROJECT=YOUR_PROJECT_ID
+VERTEX_AI_LOCATION=us-central1
+GOOGLE_APPLICATION_CREDENTIALS=/Users/yourname/nanobanana-mcp-key.json
+```
+
+**Option B: Application Default Credentials (For Local Development)**
+
+```bash
+# Authenticate with your Google account
+gcloud auth application-default login
+
+# Select your project
+gcloud config set project YOUR_PROJECT_ID
+```
+
+Then configure `.env`:
+```bash
+API_MODE=vertex_ai
+VERTEX_AI_PROJECT=YOUR_PROJECT_ID
+VERTEX_AI_LOCATION=us-central1
+# No GOOGLE_APPLICATION_CREDENTIALS needed
+```
+
+#### Step 3: Verify Configuration
+
+```bash
+# Test with a simple chat request
+# The MCP server will log which API mode is active on startup
+```
+
+#### Step 4: Configure Claude Desktop/Code
+
+For Claude Desktop, add to config:
+```json
+{
+  "mcpServers": {
+    "nanobanana-mcp": {
+      "command": "node",
+      "args": ["/absolute/path/to/nanobanana-mcp/dist/index.js"],
+      "env": {
+        "API_MODE": "vertex_ai",
+        "VERTEX_AI_PROJECT": "your-gcp-project-id",
+        "VERTEX_AI_LOCATION": "us-central1",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/service-account-key.json"
+      }
+    }
+  }
+}
+```
+
+For Claude Code:
+```bash
+source .env && claude mcp add nanobanana-mcp "node" "dist/index.js" \
+  -e "API_MODE=$API_MODE" \
+  -e "VERTEX_AI_PROJECT=$VERTEX_AI_PROJECT" \
+  -e "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION" \
+  -e "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
+```
+
+---
+
+### Troubleshooting API Configuration
+
+#### AI Studio Issues
+
+**Problem:** "API key not valid"
+- **Solution:** Regenerate key at [AI Studio](https://makersuite.google.com/app/apikey)
+- Verify no extra spaces in `.env` file
+- Check API key starts with `AIza...`
+
+**Problem:** "Quota exceeded"
+- **Solution:** Check quota limits in AI Studio dashboard
+- Consider upgrading to Vertex AI for production use
+
+#### Vertex AI Issues
+
+**Problem:** "Project not found" or "Permission denied"
+- **Solution:**
+  ```bash
+  # Verify project exists
+  gcloud projects describe YOUR_PROJECT_ID
+
+  # Check IAM permissions
+  gcloud projects get-iam-policy YOUR_PROJECT_ID
+  ```
+
+**Problem:** "Vertex AI API not enabled"
+- **Solution:**
+  ```bash
+  gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
+  ```
+
+**Problem:** "Region not supported"
+- **Solution:** Use one of these supported regions:
+  - `us-central1` (recommended)
+  - `us-east4`
+  - `us-west1`
+  - `europe-west4`
+  - `asia-northeast1`
+
+**Problem:** "Authentication failed"
+- **Solution for Service Account:**
+  ```bash
+  # Verify key file exists and is readable
+  cat $GOOGLE_APPLICATION_CREDENTIALS | jq .project_id
+  ```
+- **Solution for ADC:**
+  ```bash
+  # Re-authenticate
+  gcloud auth application-default login
+  gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+  ```
+
+#### Switching Between Modes
+
+To switch from AI Studio to Vertex AI or vice versa:
+
+1. Update `API_MODE` in `.env`
+2. Add/remove corresponding credentials
+3. Rebuild and restart:
+   ```bash
+   npm run build
+   # Then restart Claude Desktop/Code
+   ```
 
 ## 🛠️ Available Tools
 
@@ -319,10 +568,11 @@ nanobanana-mcp/
 
 ## 🔐 Security
 
-- API keys are stored locally in `.env`
-- Never commit `.env` to version control
-- All image operations happen locally
-- No data is stored on external servers
+- **API Keys**: Store in `.env` file, never commit to version control
+- **Service Account Keys**: Rotate regularly, restrict IAM permissions to minimum required
+- **ADC**: Best for local development, uses your personal GCP credentials
+- **Image Data**: All operations happen locally, no data stored on external servers
+- **Network**: Only communicates with Google AI/Vertex AI endpoints
 
 ## 🐛 Troubleshooting
 
@@ -335,10 +585,24 @@ nanobanana-mcp/
 npm run build
 ```
 
+### API Configuration Issues
+See the comprehensive [Troubleshooting API Configuration](#troubleshooting-api-configuration) section above for:
+- AI Studio API key problems
+- Vertex AI authentication issues
+- Region/project configuration errors
+- Switching between API modes
+
 ### Image generation fails
-- Verify API key is valid
-- Check API quota at [Google AI Studio](https://makersuite.google.com)
-- Ensure output directory has write permissions
+- **AI Studio Mode:**
+  - Verify API key is valid at [Google AI Studio](https://makersuite.google.com)
+  - Check API quota and rate limits
+- **Vertex AI Mode:**
+  - Verify Vertex AI API is enabled in your GCP project
+  - Check IAM permissions for service account
+  - Confirm region is supported
+- **All Modes:**
+  - Ensure output directory has write permissions
+  - Check aspect ratio was set before generation
 
 ### Claude doesn't show the tools
 1. Restart Claude Desktop/Code

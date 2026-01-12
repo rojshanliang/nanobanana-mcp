@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+/**
+ * @author RoyShan
+ * NanoBanana MCP - Gemini Vision & Image Generation for Claude
+ * Supports both Google AI Studio and Vertex AI
+ */
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -7,6 +13,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
+import { VertexAI } from "@google-cloud/vertexai";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
@@ -14,20 +21,29 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const API_KEY = process.env.GOOGLE_AI_API_KEY;
+/**
+ * API Mode Type Definition
+ */
+type ApiMode = 'ai_studio' | 'vertex';
 
-if (!API_KEY) {
-  console.error("Error: GOOGLE_AI_API_KEY environment variable is required");
-  process.exit(1);
+/**
+ * API Configuration Interface
+ */
+interface ApiConfig {
+  mode: ApiMode;
+  aiStudio?: {
+    apiKey: string;
+    modelId: string;
+  };
+  vertex?: {
+    projectId: string;
+    location: string;
+    modelId: string;
+    credentials?: string;
+  };
 }
 
-const genAI = new GoogleGenerativeAI(API_KEY);
-
-// Gemini REST API 직접 호출을 위한 설정
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const IMAGE_MODEL = "gemini-2.5-flash-image";
-
-// 이미지 생성/편집을 위한 REST API 호출 함수
+// REST API call function for image generation/editing
 interface GeminiImageRequestPart {
   text?: string;
   inlineData?: {
@@ -42,82 +58,242 @@ interface GeminiImageResponse {
   error?: string;
 }
 
-async function callGeminiImageAPI(
-  parts: GeminiImageRequestPart[],
-  aspectRatio: string
-): Promise<GeminiImageResponse> {
-  const url = `${GEMINI_API_BASE}/${IMAGE_MODEL}:streamGenerateContent?key=${API_KEY}`;
-
-  const requestBody = {
-    contents: [
-      {
-        role: "user",
-        parts,
-      },
-    ],
-    generationConfig: {
-      responseModalities: ["IMAGE", "TEXT"],
-      imageConfig: {
-        aspectRatio,
-      },
-    },
-  };
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API request failed: ${response.status} - ${errorText}`);
-  }
-
-  const responseText = await response.text();
-
-  // 스트리밍 응답 파싱 (여러 JSON 청크가 배열로 반환됨)
-  let imageData: string | undefined;
-  let textParts: string[] = [];
-
-  try {
-    // 응답이 JSON 배열 형태로 옴
-    const chunks = JSON.parse(responseText);
-
-    for (const chunk of chunks) {
-      const parts = chunk?.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if (part.inlineData?.data) {
-          imageData = part.inlineData.data;
-        } else if (part.text) {
-          textParts.push(part.text);
-        }
-      }
-    }
-  } catch {
-    // 파싱 실패 시 원본 텍스트 반환
-    return {
-      textResponse: responseText,
-      error: "Failed to parse API response",
-    };
-  }
-
-  return {
-    imageData,
-    textResponse: textParts.join(""),
-  };
+/**
+ * API Client Interface - Unified interface for both AI Studio and Vertex AI
+ */
+interface ApiClient {
+  generateImage(parts: GeminiImageRequestPart[], aspectRatio: string): Promise<GeminiImageResponse>;
+  chat(modelConfig: any, history: any[], messageParts: any[]): Promise<string>;
 }
 
-// 유효한 이미지 비율 목록
+/**
+ * Load and validate API configuration based on API_MODE environment variable
+ * @returns {ApiConfig} Validated API configuration
+ */
+function loadApiConfig(): ApiConfig {
+  const apiMode: ApiMode = (process.env.API_MODE as ApiMode) || 'ai_studio';
+
+  if (apiMode === 'vertex') {
+    const projectId = process.env.VERTEX_PROJECT_ID;
+    if (!projectId) {
+      console.error("Error: VERTEX_PROJECT_ID is required for Vertex AI mode");
+      process.exit(1);
+    }
+
+    const config: ApiConfig = {
+      mode: 'vertex',
+      vertex: {
+        projectId,
+        location: process.env.VERTEX_LOCATION || 'us-central1',
+        modelId: process.env.VERTEX_MODEL_ID || 'gemini-2.5-flash-image',
+        credentials: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      },
+    };
+
+    console.error(`[NanoBanana] Initialized in vertex mode (Project: ${projectId}, Location: ${config.vertex?.location})`);
+    return config;
+  } else {
+    // Default: AI Studio mode
+    const apiKey = process.env.GOOGLE_AI_API_KEY;
+    if (!apiKey) {
+      console.error("Error: GOOGLE_AI_API_KEY is required for AI Studio mode");
+      process.exit(1);
+    }
+
+    const config: ApiConfig = {
+      mode: 'ai_studio',
+      aiStudio: {
+        apiKey,
+        modelId: process.env.AI_STUDIO_MODEL_ID || 'gemini-2.5-flash-image',
+      },
+    };
+
+    // Mask API key for security
+    const maskedKey = apiKey.length > 12
+      ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}`
+      : '****';
+    console.error(`[NanoBanana] Initialized in ai_studio mode (API Key: ${maskedKey})`);
+    return config;
+  }
+}
+
+/**
+ * AI Studio API Client - Uses Google GenerativeAI SDK
+ */
+class AiStudioApiClient implements ApiClient {
+  private genAI: GoogleGenerativeAI;
+  private modelId: string;
+
+  constructor(config: { apiKey: string; modelId: string }) {
+    this.genAI = new GoogleGenerativeAI(config.apiKey);
+    this.modelId = config.modelId;
+  }
+
+  async generateImage(parts: GeminiImageRequestPart[], aspectRatio: string): Promise<GeminiImageResponse> {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: this.modelId,
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageConfig: { aspectRatio },
+        } as any,
+      });
+
+      const result = await model.generateContentStream({
+        contents: [{ role: "user", parts: parts as Part[] }],
+      });
+
+      let imageData: string | undefined;
+      let textParts: string[] = [];
+
+      for await (const chunk of result.stream) {
+        const parts = chunk?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData?.data) {
+            imageData = part.inlineData.data;
+          } else if (part.text) {
+            textParts.push(part.text);
+          }
+        }
+      }
+
+      return {
+        imageData,
+        textResponse: textParts.join(""),
+      };
+    } catch (error: any) {
+      return {
+        textResponse: "",
+        error: error.message || String(error),
+      };
+    }
+  }
+
+  async chat(modelConfig: any, history: any[], messageParts: any[]): Promise<string> {
+    const model = this.genAI.getGenerativeModel({
+      model: this.modelId,
+      systemInstruction: modelConfig.systemInstruction,
+    });
+
+    const chat = model.startChat({
+      history: history,
+    });
+
+    const result = await chat.sendMessage(messageParts);
+    return result.response.text();
+  }
+}
+
+/**
+ * Vertex AI API Client - Uses Vertex AI SDK with response adapter
+ */
+class VertexApiClient implements ApiClient {
+  private vertexAI: VertexAI;
+  private modelId: string;
+  private location: string;
+
+  constructor(config: { projectId: string; location: string; modelId: string; credentials?: string }) {
+    // Set credentials if provided
+    if (config.credentials) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = config.credentials;
+    }
+
+    this.vertexAI = new VertexAI({
+      project: config.projectId,
+      location: config.location,
+    });
+    this.modelId = config.modelId;
+    this.location = config.location;
+  }
+
+  async generateImage(parts: GeminiImageRequestPart[], aspectRatio: string): Promise<GeminiImageResponse> {
+    try {
+      const model = this.vertexAI.getGenerativeModel({
+        model: this.modelId,
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageConfig: { aspectRatio },
+        } as any,
+      });
+
+      const result = await model.generateContentStream({
+        contents: [{ role: "user", parts: parts as any }],
+      });
+
+      let imageData: string | undefined;
+      let textParts: string[] = [];
+
+      for await (const chunk of result.stream) {
+        if (chunk.candidates?.[0]?.content?.parts) {
+          for (const part of chunk.candidates[0].content.parts) {
+            if ((part as any).inlineData?.data) {
+              imageData = (part as any).inlineData.data;
+            } else if ((part as any).text) {
+              textParts.push((part as any).text);
+            }
+          }
+        }
+      }
+
+      return {
+        imageData,
+        textResponse: textParts.join(""),
+      };
+    } catch (error: any) {
+      // Enhanced error handling with user-friendly messages
+      let errMsg = error.message || String(error);
+
+      if (error.code === 'NOT_FOUND' || errMsg.includes('404')) {
+        errMsg = `Model not found. Please verify:\n` +
+          `1. VERTEX_MODEL_ID="${this.modelId}" exists\n` +
+          `2. VERTEX_LOCATION="${this.location}" has this model deployed`;
+      } else if (errMsg.includes('429') || error.code === 'RESOURCE_EXHAUSTED') {
+        errMsg = "Vertex AI quota exceeded. Please try again later or check your project quotas.";
+      } else if (error.code === 'PERMISSION_DENIED') {
+        errMsg = "Authentication failed. Please check:\n" +
+          "1. GOOGLE_APPLICATION_CREDENTIALS points to valid key file\n" +
+          "2. Or run: gcloud auth application-default login";
+      }
+
+      return {
+        textResponse: "",
+        error: errMsg,
+      };
+    }
+  }
+
+  async chat(modelConfig: any, history: any[], messageParts: any[]): Promise<string> {
+    const model = this.vertexAI.getGenerativeModel({
+      model: this.modelId,
+      systemInstruction: modelConfig.systemInstruction,
+    });
+
+    const chat = model.startChat({ history });
+    const result = await chat.sendMessage(messageParts);
+    const response = await result.response;
+    return response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+}
+
+/**
+ * Factory function to create appropriate API client based on configuration
+ */
+function createApiClient(config: ApiConfig): ApiClient {
+  if (config.mode === 'vertex') {
+    return new VertexApiClient(config.vertex!);
+  } else {
+    return new AiStudioApiClient(config.aiStudio!);
+  }
+}
+
+// Valid aspect ratio list
 const VALID_ASPECT_RATIOS = [
   "1:1", "9:16", "16:9", "3:4", "4:3",
   "3:2", "2:3", "5:4", "4:5", "21:9"
 ] as const;
 type AspectRatio = typeof VALID_ASPECT_RATIOS[number];
 
-// 이미지 히스토리 엔트리 - 세션 내 이미지 일관성 유지용
+// Image history entry - maintains image consistency within a session
 interface ImageHistoryEntry {
   id: string;
   filePath: string;
@@ -139,29 +315,29 @@ interface ConversationContext {
 
 const conversations = new Map<string, ConversationContext>();
 
-// 이미지 히스토리 최대 개수 (메모리 관리)
+// Maximum number of images in history (for memory management)
 const MAX_IMAGE_HISTORY = 10;
-// API 요청 시 포함할 최근 이미지 개수
+// Maximum number of recent images to include in API requests
 const MAX_REFERENCE_IMAGES = 3;
 
-// 고유 이미지 ID 생성
+// Generate unique image ID
 function generateImageId(): string {
   return `img_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 }
 
-// 이미지를 히스토리에 추가
+// Add image to history
 function addImageToHistory(
   context: ConversationContext,
   entry: ImageHistoryEntry
 ): void {
   context.imageHistory.push(entry);
-  // 최대 개수 초과 시 오래된 것 제거
+  // Remove oldest entries if exceeding max count
   if (context.imageHistory.length > MAX_IMAGE_HISTORY) {
     context.imageHistory.shift();
   }
 }
 
-// 히스토리에서 이미지 참조 가져오기 ("last", "history:0" 등)
+// Get image from history by reference ("last", "history:0", etc.)
 function getImageFromHistory(
   context: ConversationContext,
   reference: string
@@ -181,7 +357,7 @@ function getImageFromHistory(
   return null;
 }
 
-// 대화 컨텍스트 초기화/가져오기
+// Initialize/get conversation context
 function getOrCreateContext(conversationId: string): ConversationContext {
   if (!conversations.has(conversationId)) {
     conversations.set(conversationId, {
@@ -206,6 +382,10 @@ async function saveImageFromBuffer(buffer: Buffer, outputPath: string): Promise<
   await fs.writeFile(outputPath, buffer);
 }
 
+
+// Initialize API configuration and client
+const apiConfig = loadApiConfig();
+const apiClient = createApiClient(apiConfig);
 
 const server = new Server(
   {
@@ -391,10 +571,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { message, conversation_id = "default", system_prompt, images = [] } = args as any;
 
         const context = getOrCreateContext(conversation_id);
-        const model = genAI.getGenerativeModel({
-          model: "gemini-2.5-flash-image",
-          systemInstruction: system_prompt,
-        });
 
         // Build message parts with images (max 10)
         const messageParts: Part[] = [{ text: message }];
@@ -449,14 +625,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           parts: messageParts,
         });
 
-        // Start chat with history
-        const chat = model.startChat({
-          history: context.history.slice(0, -1), // All except the last message
-        });
-
-        const result = await chat.sendMessage(messageParts);
-        const response = result.response;
-        const text = response.text();
+        // Start chat with history using API client
+        const text = await apiClient.chat(
+          { systemInstruction: system_prompt },
+          context.history.slice(0, -1),
+          messageParts
+        );
 
         // Add model response to history
         context.history.push({
@@ -490,7 +664,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } = args as any;
 
         try {
-          // 대화 컨텍스트 가져오기/생성
+          // Get/create conversation context
           const context = getOrCreateContext(conversation_id);
 
           // Validate directly passed aspect_ratio
@@ -566,8 +740,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
           parts.push({ text: finalPrompt });
 
-          // REST API 직접 호출
-          const apiResponse = await callGeminiImageAPI(parts, effectiveAspectRatio);
+          // Call API client for image generation
+          const apiResponse = await apiClient.generateImage(parts, effectiveAspectRatio);
 
           if (apiResponse.error) {
             return {
@@ -660,7 +834,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } = args as any;
 
         try {
-          // 대화 컨텍스트 가져오기/생성
+          // Get/create conversation context
           const context = getOrCreateContext(conversation_id);
 
           // Validate directly passed aspect_ratio
@@ -784,8 +958,8 @@ IMPORTANT: Create a completely new image that incorporates the requested changes
             },
           });
 
-          // REST API 직접 호출
-          const apiResponse = await callGeminiImageAPI(parts, effectiveAspectRatio);
+          // Call API client for image generation
+          const apiResponse = await apiClient.generateImage(parts, effectiveAspectRatio);
 
           if (apiResponse.error) {
             return {
