@@ -1,5 +1,27 @@
 # WORKLOG
 
+## [2026-01-12] docs: 修复文档中的环境变量名称和语言错误
+
+### 修复内容
+**作者**: RoyShan
+
+#### 文档错误修正
+- **README.md**: 修正所有环境变量名称
+  - `VERTEX_AI_PROJECT` → `VERTEX_PROJECT_ID`
+  - `VERTEX_AI_LOCATION` → `VERTEX_LOCATION`
+  - `API_MODE=vertex_ai` → `API_MODE=vertex`
+  - `CHAT_MODEL_ID`/`IMAGE_MODEL_ID` → `AI_STUDIO_MODEL_ID`/`VERTEX_MODEL_ID`
+- **CLAUDE.md**: 全文英文化并修正环境变量
+  - 将所有中文注释转换为英文
+  - 修正安装命令中的环境变量名称
+  - 更新启动日志示例以匹配实际输出
+
+#### 影响范围
+- 文档与代码实现完全一致
+- 用户配置参考正确性提升
+
+---
+
 ## [2026-01-12] feat: 实现 AI Studio 与 Vertex AI 双 API 模式支持
 
 ### 主要变更

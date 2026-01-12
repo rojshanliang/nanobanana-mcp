@@ -4,6 +4,13 @@
 [![Gemini](https://img.shields.io/badge/Gemini-3%20Pro-orange)](https://ai.google.dev)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
+> **🔱 Enhanced Fork by RoyShan**
+> This is an extended version of the [original NanoBanana MCP](https://github.com/YCSE/nanobanana-mcp) with:
+> - ✨ **Dual API Support**: Both Google AI Studio and Vertex AI
+> - 🔧 **Configurable Model IDs**: Separate model configuration for each API
+> - 🔐 **Enhanced Authentication**: Multiple Vertex AI auth methods (Service Account, ADC)
+> - 📝 **English Documentation**: Fully translated codebase with author annotations
+
 Supercharge Claude Desktop and Claude Code with Google's Gemini multimodal capabilities! Generate stunning images with session-based consistency, edit existing ones, and leverage advanced vision AI - all within your Claude environment.
 
 ## ✨ Features
@@ -41,7 +48,7 @@ Supercharge Claude Desktop and Claude Code with Google's Gemini multimodal capab
 First, clone and build the project:
 
 ```bash
-git clone https://github.com/YCSE/nanobanana-mcp.git
+git clone https://github.com/rojshanliang/nanobanana-mcp.git
 cd nanobanana-mcp
 npm install
 npm run build
@@ -179,9 +186,9 @@ GOOGLE_AI_API_KEY=your_ai_studio_api_key_here
 **Setup:**
 ```bash
 # .env configuration
-API_MODE=vertex_ai
-VERTEX_AI_PROJECT=your-gcp-project-id
-VERTEX_AI_LOCATION=us-central1
+API_MODE=vertex
+VERTEX_PROJECT_ID=your-gcp-project-id
+VERTEX_LOCATION=us-central1
 
 # Authentication (choose one):
 # Option A: Service Account Key
@@ -206,13 +213,13 @@ GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `API_MODE` | No | `ai_studio` | API mode: `ai_studio` or `vertex_ai` |
+| `API_MODE` | No | `ai_studio` | API mode: `ai_studio` or `vertex` |
 | `GOOGLE_AI_API_KEY` | Yes (AI Studio) | - | AI Studio API key |
-| `VERTEX_AI_PROJECT` | Yes (Vertex AI) | - | GCP project ID |
-| `VERTEX_AI_LOCATION` | No | `us-central1` | Vertex AI region |
+| `VERTEX_PROJECT_ID` | Yes (Vertex AI) | - | GCP project ID |
+| `VERTEX_LOCATION` | No | `us-central1` | Vertex AI region |
 | `GOOGLE_APPLICATION_CREDENTIALS` | No* | - | Path to service account key (Vertex AI) |
-| `CHAT_MODEL_ID` | No | `gemini-2.5-flash-image` | Override chat model |
-| `IMAGE_MODEL_ID` | No | `gemini-2.5-flash-image` | Override image generation model |
+| `AI_STUDIO_MODEL_ID` | No | `gemini-2.5-flash-image` | Override AI Studio model |
+| `VERTEX_MODEL_ID` | No | `gemini-2.5-flash-image` | Override Vertex AI model |
 
 *Not required if using Application Default Credentials (ADC)
 
@@ -262,9 +269,9 @@ gcloud iam service-accounts keys create ~/nanobanana-mcp-key.json \
 
 Then configure `.env`:
 ```bash
-API_MODE=vertex_ai
-VERTEX_AI_PROJECT=YOUR_PROJECT_ID
-VERTEX_AI_LOCATION=us-central1
+API_MODE=vertex
+VERTEX_PROJECT_ID=YOUR_PROJECT_ID
+VERTEX_LOCATION=us-central1
 GOOGLE_APPLICATION_CREDENTIALS=/Users/yourname/nanobanana-mcp-key.json
 ```
 
@@ -280,9 +287,9 @@ gcloud config set project YOUR_PROJECT_ID
 
 Then configure `.env`:
 ```bash
-API_MODE=vertex_ai
-VERTEX_AI_PROJECT=YOUR_PROJECT_ID
-VERTEX_AI_LOCATION=us-central1
+API_MODE=vertex
+VERTEX_PROJECT_ID=YOUR_PROJECT_ID
+VERTEX_LOCATION=us-central1
 # No GOOGLE_APPLICATION_CREDENTIALS needed
 ```
 
@@ -303,9 +310,9 @@ For Claude Desktop, add to config:
       "command": "node",
       "args": ["/absolute/path/to/nanobanana-mcp/dist/index.js"],
       "env": {
-        "API_MODE": "vertex_ai",
-        "VERTEX_AI_PROJECT": "your-gcp-project-id",
-        "VERTEX_AI_LOCATION": "us-central1",
+        "API_MODE": "vertex",
+        "VERTEX_PROJECT_ID": "your-gcp-project-id",
+        "VERTEX_LOCATION": "us-central1",
         "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/service-account-key.json"
       }
     }
@@ -317,8 +324,8 @@ For Claude Code:
 ```bash
 source .env && claude mcp add nanobanana-mcp "node" "dist/index.js" \
   -e "API_MODE=$API_MODE" \
-  -e "VERTEX_AI_PROJECT=$VERTEX_AI_PROJECT" \
-  -e "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION" \
+  -e "VERTEX_PROJECT_ID=$VERTEX_PROJECT_ID" \
+  -e "VERTEX_LOCATION=$VERTEX_LOCATION" \
   -e "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
 ```
 
@@ -627,7 +634,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 If you find this project useful, please consider giving it a star ⭐️
 
-[![Star History Chart](https://api.star-history.com/svg?repos=YCSE/nanobanana-mcp&type=Date)](https://star-history.com/#YCSE/nanobanana-mcp&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=rojshanliang/nanobanana-mcp&type=Date)](https://star-history.com/#rojshanliang/nanobanana-mcp&Date)
 
 ## 🙏 Acknowledgments
 
@@ -637,9 +644,10 @@ If you find this project useful, please consider giving it a star ⭐️
 
 ## 📧 Support
 
-- 🐛 [Report Issues](https://github.com/YCSE/nanobanana-mcp/issues)
-- 💬 [Discussions](https://github.com/YCSE/nanobanana-mcp/discussions)
-- 📖 [Documentation](https://github.com/YCSE/nanobanana-mcp/wiki)
+- 🐛 [Report Issues](https://github.com/rojshanliang/nanobanana-mcp/issues)
+- 💬 [Discussions](https://github.com/rojshanliang/nanobanana-mcp/discussions)
+- 📖 [Documentation](https://github.com/rojshanliang/nanobanana-mcp/wiki)
+- 🔙 [Original Project](https://github.com/YCSE/nanobanana-mcp)
 
 ---
 

@@ -23,16 +23,16 @@
     "claude",
     "model-context-protocol"
   ],
-  "author": "YCSE",
+  "author": "YCSE (original), RoyShan (Vertex AI fork)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YCSE/nanobanana-mcp.git"
+    "url": "https://github.com/rojshanliang/nanobanana-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/YCSE/nanobanana-mcp/issues"
+    "url": "https://github.com/rojshanliang/nanobanana-mcp/issues"
   },
-  "homepage": "https://github.com/YCSE/nanobanana-mcp#readme",
+  "homepage": "https://github.com/rojshanliang/nanobanana-mcp#readme",
   "dependencies": {
     "@google-cloud/vertexai": "^1.10.0",
     "@google/genai": "^1.16.0",

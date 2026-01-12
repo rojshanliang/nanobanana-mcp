@@ -56,98 +56,98 @@ Default save location: `~/Documents/nanobanana_generated/`
 
 ## Configuration
 
-### API Mode (双 API 模式)
+### API Mode (Dual API Support)
 
-NanoBanana MCP 支持两种 API 访问模式:
+NanoBanana MCP supports two API access modes:
 
-#### AI Studio 模式 (默认)
-**用途**: 开发、测试、个人项目
+#### AI Studio Mode (Default)
+**Use Case**: Development, testing, personal projects
 
-**环境变量**:
+**Environment Variables**:
 ```bash
 API_MODE=ai_studio
 GOOGLE_AI_API_KEY=your_ai_studio_api_key
 ```
 
-**特点**:
-- 快速设置,仅需 API Key
-- 无需 GCP 项目
-- 免费额度可用
+**Features**:
+- Quick setup, only requires API Key
+- No GCP project needed
+- Free tier available
 
-#### Vertex AI 模式 (生产环境)
-**用途**: 生产部署、企业应用
+#### Vertex AI Mode (Production)
+**Use Case**: Production deployment, enterprise applications
 
-**环境变量**:
+**Environment Variables**:
 ```bash
-API_MODE=vertex_ai
-VERTEX_AI_PROJECT=your-gcp-project-id
-VERTEX_AI_LOCATION=us-central1  # 可选,默认 us-central1
+API_MODE=vertex
+VERTEX_PROJECT_ID=your-gcp-project-id
+VERTEX_LOCATION=us-central1  # Optional, default: us-central1
 
-# 认证方式 (二选一):
-# 方式A: 服务账号密钥
+# Authentication (choose one):
+# Option A: Service Account Key
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
 
-# 方式B: Application Default Credentials (ADC)
-# 运行: gcloud auth application-default login
+# Option B: Application Default Credentials (ADC)
+# Run: gcloud auth application-default login
 ```
 
-**特点**:
-- 更高的速率限制和配额
-- 生产级 SLA
-- 高级监控和日志
-- GCP 服务集成
+**Features**:
+- Higher rate limits and quotas
+- Production-grade SLA
+- Advanced monitoring and logging
+- GCP service integration
 
-#### 模型ID覆盖 (可选)
+#### Model ID Override (Optional)
 
-可通过环境变量覆盖默认模型:
+Override default models via environment variables:
 ```bash
-CHAT_MODEL_ID=gemini-2.5-flash-image      # 聊天模型
-IMAGE_MODEL_ID=gemini-2.5-flash-image     # 图像生成模型
+AI_STUDIO_MODEL_ID=gemini-2.5-flash-image      # AI Studio model
+VERTEX_MODEL_ID=gemini-2.5-flash-image         # Vertex AI model
 ```
 
-### 认证方法对比
+### Authentication Methods Comparison
 
-| 方法 | 复杂度 | 使用场景 | 安全性建议 |
-|------|--------|----------|-----------|
-| AI Studio API Key | 简单 | 开发/测试 | 存储在 `.env`,不要提交 |
-| 服务账号密钥 | 中等 | 生产/CI/CD | 定期轮换,最小权限 |
-| ADC | 高级 | 本地开发 | 使用个人 GCP 凭证 |
+| Method | Complexity | Use Case | Security Recommendation |
+|--------|------------|----------|-------------------------|
+| AI Studio API Key | Simple | Development/Testing | Store in `.env`, don't commit |
+| Service Account Key | Medium | Production/CI/CD | Rotate regularly, minimum permissions |
+| ADC | Advanced | Local development | Use personal GCP credentials |
 
 ## Installation to Claude Code
 
-### AI Studio 模式安装
+### AI Studio Mode Installation
 
 ```bash
 source .env && claude mcp add nanobanana-mcp "node" "dist/index.js" \
   -e "GOOGLE_AI_API_KEY=$GOOGLE_AI_API_KEY"
 ```
 
-### Vertex AI 模式安装
+### Vertex AI Mode Installation
 
-**使用服务账号密钥**:
+**Using Service Account Key**:
 ```bash
 source .env && claude mcp add nanobanana-mcp "node" "dist/index.js" \
-  -e "API_MODE=vertex_ai" \
-  -e "VERTEX_AI_PROJECT=$VERTEX_AI_PROJECT" \
-  -e "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION" \
+  -e "API_MODE=vertex" \
+  -e "VERTEX_PROJECT_ID=$VERTEX_PROJECT_ID" \
+  -e "VERTEX_LOCATION=$VERTEX_LOCATION" \
   -e "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
 ```
 
-**使用 ADC (Application Default Credentials)**:
+**Using ADC (Application Default Credentials)**:
 ```bash
-# 先进行 ADC 认证
+# Authenticate with ADC first
 gcloud auth application-default login
 
-# 安装 MCP 服务器
+# Install MCP server
 source .env && claude mcp add nanobanana-mcp "node" "dist/index.js" \
-  -e "API_MODE=vertex_ai" \
-  -e "VERTEX_AI_PROJECT=$VERTEX_AI_PROJECT" \
-  -e "VERTEX_AI_LOCATION=$VERTEX_AI_LOCATION"
+  -e "API_MODE=vertex" \
+  -e "VERTEX_PROJECT_ID=$VERTEX_PROJECT_ID" \
+  -e "VERTEX_LOCATION=$VERTEX_LOCATION"
 ```
 
-### 验证安装
+### Verify Installation
 
-安装后,服务器启动时会在日志中显示当前 API 模式:
-- AI Studio: `[INFO] Using AI Studio API with model: gemini-2.5-flash-image`
-- Vertex AI: `[INFO] Using Vertex AI in project: your-project-id, location: us-central1`
+After installation, the server will display the current API mode in startup logs:
+- AI Studio: `[NanoBanana] Initialized in ai_studio mode (API Key: AIza****xyz)`
+- Vertex AI: `[NanoBanana] Initialized in vertex mode (Project: your-project-id, Location: us-central1)`
 
