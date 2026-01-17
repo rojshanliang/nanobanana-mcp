@@ -383,6 +383,19 @@ source .env && claude mcp add nanobanana-mcp "node" "dist/index.js" \
   gcloud auth application-default set-quota-project YOUR_PROJECT_ID
   ```
 
+**Problem:** "Connection timeout" or "Connect Timeout Error"
+- **Solution:** Configure HTTP/HTTPS proxy if behind firewall
+  ```bash
+  # Add to .env file
+  HTTPS_PROXY=http://your-proxy-host:port
+
+  # Or set as environment variable
+  export HTTPS_PROXY=http://127.0.0.1:7890
+  export https_proxy=http://127.0.0.1:7890
+  ```
+- The server automatically uses proxy settings from `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, or `http_proxy` environment variables
+- Proxy configuration works for both AI Studio and Vertex AI modes
+
 #### Switching Between Modes
 
 To switch from AI Studio to Vertex AI or vice versa:

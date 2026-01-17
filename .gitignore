@@ -17,3 +17,6 @@ coverage/
 !package.json
 !package-lock.json
 !tsconfig.json
+
+# Claude Code internal files
+.claude/*

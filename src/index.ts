@@ -14,12 +14,21 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import { VertexAI } from "@google-cloud/vertexai";
+import { ProxyAgent, setGlobalDispatcher } from "undici";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Configure HTTP/HTTPS Proxy if specified
+const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+if (proxyUrl) {
+  const proxyAgent = new ProxyAgent(proxyUrl);
+  setGlobalDispatcher(proxyAgent);
+  console.error(`[NanoBanana] Using proxy: ${proxyUrl}`);
+}
 
 /**
  * API Mode Type Definition
@@ -185,12 +194,13 @@ class AiStudioApiClient implements ApiClient {
 }
 
 /**
- * Vertex AI API Client - Uses Vertex AI SDK with response adapter
+ * Vertex AI API Client - Uses @google-cloud/vertexai SDK
  */
 class VertexApiClient implements ApiClient {
   private vertexAI: VertexAI;
   private modelId: string;
   private location: string;
+  private projectId: string;
 
   constructor(config: { projectId: string; location: string; modelId: string; credentials?: string }) {
     // Set credentials if provided
@@ -198,30 +208,58 @@ class VertexApiClient implements ApiClient {
       process.env.GOOGLE_APPLICATION_CREDENTIALS = config.credentials;
     }
 
-    this.vertexAI = new VertexAI({
+    // Fix: Explicitly set correct global endpoint
+    const vertexConfig: any = {
       project: config.projectId,
       location: config.location,
-    });
+    };
+
+    // SDK incorrectly constructs `global-aiplatform.googleapis.com` for global location
+    // Correct global endpoint is `aiplatform.googleapis.com`
+    if (config.location === 'global') {
+      vertexConfig.apiEndpoint = 'aiplatform.googleapis.com';
+    }
+
+    this.vertexAI = new VertexAI(vertexConfig);
     this.modelId = config.modelId;
     this.location = config.location;
+    this.projectId = config.projectId;
   }
 
   async generateImage(parts: GeminiImageRequestPart[], aspectRatio: string): Promise<GeminiImageResponse> {
     try {
+      // Get the generative model with generation config
       const model = this.vertexAI.getGenerativeModel({
         model: this.modelId,
         generationConfig: {
-          responseModalities: ["IMAGE", "TEXT"],
+          responseModalities: ["TEXT", "IMAGE"],
           imageConfig: { aspectRatio },
         } as any,
       });
 
-      const result = await model.generateContentStream({
-        contents: [{ role: "user", parts: parts as any }],
-      });
+      // Build the request
+      const imageParts = parts.filter(p => p.inlineData);
+      const textParts = parts.filter(p => p.text).map(p => p.text).join(' ');
+
+      const request: any = {
+        contents: [{
+          role: 'user',
+          parts: [
+            ...imageParts.map(p => ({
+              inlineData: {
+                mimeType: p.inlineData!.mimeType,
+                data: p.inlineData!.data
+              }
+            })),
+            { text: textParts }
+          ]
+        }],
+      };
+
+      const result = await model.generateContentStream(request);
 
       let imageData: string | undefined;
-      let textParts: string[] = [];
+      let textResponse: string[] = [];
 
       for await (const chunk of result.stream) {
         if (chunk.candidates?.[0]?.content?.parts) {
@@ -229,7 +267,7 @@ class VertexApiClient implements ApiClient {
             if ((part as any).inlineData?.data) {
               imageData = (part as any).inlineData.data;
             } else if ((part as any).text) {
-              textParts.push((part as any).text);
+              textResponse.push((part as any).text);
             }
           }
         }
@@ -237,10 +275,20 @@ class VertexApiClient implements ApiClient {
 
       return {
         imageData,
-        textResponse: textParts.join(""),
+        textResponse: textResponse.join(""),
       };
     } catch (error: any) {
-      // Enhanced error handling with user-friendly messages
+      // Enhanced error handling with detailed debugging info
+      console.error('[VertexAI Image Generation Error]', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack,
+        cause: error.cause,
+        modelId: this.modelId,
+        location: this.location,
+        projectId: this.projectId,
+      });
+
       let errMsg = error.message || String(error);
 
       if (error.code === 'NOT_FOUND' || errMsg.includes('404')) {
@@ -253,6 +301,9 @@ class VertexApiClient implements ApiClient {
         errMsg = "Authentication failed. Please check:\n" +
           "1. GOOGLE_APPLICATION_CREDENTIALS points to valid key file\n" +
           "2. Or run: gcloud auth application-default login";
+      } else {
+        // Include full error details for debugging
+        errMsg = `Vertex AI Error: ${errMsg}\nCode: ${error.code || 'N/A'}\nStack: ${error.stack?.split('\n').slice(0,3).join('\n') || 'N/A'}`;
       }
 
       return {
@@ -270,8 +321,7 @@ class VertexApiClient implements ApiClient {
 
     const chat = model.startChat({ history });
     const result = await chat.sendMessage(messageParts);
-    const response = await result.response;
-    return response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    return result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
 }
 
@@ -681,7 +731,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           // Priority: direct param > session setting
           const effectiveAspectRatio = aspect_ratio ?? context.aspectRatio;
 
-          // aspectRatio 필수 체크 (둘 다 없으면 에러)
+          // Aspect ratio required check (error if both are missing)
           if (effectiveAspectRatio === null) {
             return {
               content: [{
@@ -692,11 +742,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
           }
 
-          // contents 구성: 참조 이미지 + 히스토리 이미지 + 프롬프트
+          // Build contents: reference images + history images + prompt
           const parts: GeminiImageRequestPart[] = [];
           const failedReferenceImages: Array<{ path: string; reason: string }> = [];
 
-          // 1. 수동 지정 참조 이미지 추가
+          // 1. Add manually specified reference images
           if (reference_images && reference_images.length > 0) {
             for (const imgPath of reference_images) {
               try {
@@ -720,7 +770,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
           }
 
-          // 2. 히스토리 이미지 추가 (일관성 유지용)
+          // 2. Add history images (for consistency maintenance)
           if (use_image_history && context.imageHistory.length > 0) {
             const recentImages = context.imageHistory.slice(-MAX_REFERENCE_IMAGES);
             for (const img of recentImages) {
@@ -733,7 +783,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
           }
 
-          // 3. 프롬프트 추가 (히스토리 이미지가 있으면 일관성 유지 지시 추가)
+          // 3. Add prompt (with consistency instruction if history images exist)
           let finalPrompt = prompt;
           if (use_image_history && context.imageHistory.length > 0) {
             finalPrompt = `${prompt}\n\nIMPORTANT: Maintain visual consistency with the provided reference images (same style, character appearance, color palette).`;
@@ -785,7 +835,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const buffer = Buffer.from(apiResponse.imageData, 'base64');
           await saveImageFromBuffer(buffer, finalPath);
 
-          // 생성된 이미지를 히스토리에 저장
+          // Save generated image to history
           addImageToHistory(context, {
             id: generateImageId(),
             filePath: finalPath,
@@ -851,7 +901,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           // Priority: direct param > session setting
           const effectiveAspectRatio = aspect_ratio ?? context.aspectRatio;
 
-          // aspectRatio 필수 체크 (둘 다 없으면 에러)
+          // Aspect ratio required check (error if both are missing)
           if (effectiveAspectRatio === null) {
             return {
               content: [{
@@ -862,17 +912,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
           }
 
-          // 히스토리 참조 확인 ("last", "history:N")
+          // Check history reference ("last", "history:N")
           let resolvedImagePath = image_path;
           let imageBase64: string;
 
           const historyImage = getImageFromHistory(context, image_path);
           if (historyImage) {
-            // 히스토리에서 이미지 가져오기
+            // Get image from history
             resolvedImagePath = historyImage.filePath;
             imageBase64 = historyImage.base64Data;
           } else {
-            // 파일 경로로 처리
+            // Process as file path
             if (!path.isAbsolute(resolvedImagePath)) {
               resolvedImagePath = path.join(process.cwd(), resolvedImagePath);
             }
@@ -896,11 +946,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             imageBase64 = await imageToBase64(resolvedImagePath);
           }
 
-          // contents 구성: 참조 이미지들 + 프롬프트 + 원본 이미지
+          // Build contents: reference images + prompt + original image
           const parts: GeminiImageRequestPart[] = [];
           const failedReferenceImages: Array<{ path: string; reason: string }> = [];
 
-          // 1. 추가 참조 이미지 (스타일 일관성용, 최대 10개)
+          // 1. Add additional reference images (for style consistency, max 10)
           const refImages = (reference_images as string[] || []).slice(0, 10);
           for (const imgRef of refImages) {
             try {
@@ -944,13 +994,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
           }
 
-          // 2. 편집 프롬프트
+          // 2. Editing prompt
           const editingPrompt = `Based on this image, generate a new edited version with the following modifications: ${edit_prompt}
 
 IMPORTANT: Create a completely new image that incorporates the requested changes while maintaining the style and overall composition of the original.`;
           parts.push({ text: editingPrompt });
 
-          // 3. 원본 이미지
+          // 3. Original image
           parts.push({
             inlineData: {
               mimeType: "image/png",
@@ -1004,7 +1054,7 @@ IMPORTANT: Create a completely new image that incorporates the requested changes
           const buffer = Buffer.from(apiResponse.imageData, 'base64');
           await saveImageFromBuffer(buffer, finalPath);
 
-          // 편집된 이미지를 히스토리에 저장
+          // Save edited image to history
           addImageToHistory(context, {
             id: generateImageId(),
             filePath: finalPath,

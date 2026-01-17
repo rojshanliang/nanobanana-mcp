@@ -38,7 +38,8 @@
     "@google/genai": "^1.16.0",
     "@google/generative-ai": "^0.21.0",
     "@modelcontextprotocol/sdk": "^1.0.4",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "undici": "^7.18.2"
   },
   "devDependencies": {
     "@types/mime": "^3.0.4",
